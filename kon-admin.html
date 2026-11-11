@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>لوحة تحكم كن رياضي</title>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@600;900&display=swap" rel="stylesheet">
+<style>
+:root{--n:#0a0f2c;--y:#FFD700;--r:#C1272D;color-scheme:dark}
+*{box-sizing:border-box;margin:0}body{font-family:Cairo,system-ui,sans-serif;background:var(--n);color:#fff;min-height:100vh;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+main{max-width:640px;margin:0 auto;padding:16px}h1{color:var(--y);font-size:1.5rem;margin-bottom:14px}h2{color:var(--y);font-size:1.1rem;margin:0 0 10px}
+button,input,textarea{font:inherit;color:inherit}button{cursor:pointer;border:0}
+input,textarea{width:100%;background:rgba(0,0,0,.4);border:1.5px solid rgba(255,215,0,.4);border-radius:12px;padding:11px 13px}textarea{min-height:90px}
+label{display:grid;gap:6px;font-weight:600;font-size:.9rem;margin-bottom:10px}
+.card{background:rgba(255,255,255,.07);border:1px solid rgba(255,215,0,.3);border-radius:18px;padding:16px;margin-bottom:14px}
+.b{width:100%;padding:12px;border-radius:12px;font-weight:900;background:var(--y);color:var(--n)}.b.d{background:var(--r);color:#fff;width:auto;padding:6px 12px;font-size:.85rem}
+.tabs{display:flex;gap:8px;overflow-x:auto;margin-bottom:14px;position:sticky;top:0;background:var(--n);padding:8px 0;z-index:2}
+.tabs button{flex:none;padding:9px 16px;border-radius:99px;background:rgba(255,255,255,.08);border:1px solid rgba(255,215,0,.4);font-weight:700}.tabs .on{background:var(--y);color:var(--n)}
+.row{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:10px 0;border-top:1px solid rgba(255,255,255,.1)}.row img{width:56px;height:42px;object-fit:cover;border-radius:8px}.row span{flex:1;overflow-wrap:anywhere;font-size:.9rem}
+#msg{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:#141b45;border:1.5px solid var(--y);border-radius:14px;padding:10px 16px;z-index:9;max-width:92vw}
+.err{color:#ff7a80;margin-top:8px;min-height:1.4em}.mut{opacity:.7;font-size:.85rem}
+.top{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:6px}.top h1{margin:0}
+</style><script src="firebase-config.js"></script></head>
+<body><main>
+<section id="lock" class="card" style="margin-top:12vh"><h1>🔐 لوحة تحكم كن رياضي</h1>
+<label>الإيميل<input id="em" type="email" autocomplete="username" value="mariammohamedelsyad@gmail.com"></label>
+<label>كلمة السر<input id="code" type="password" autocomplete="current-password" placeholder="اكتب كلمة السر"></label>
+<button class="b" id="go">دخول</button><div class="err" id="err"></div></section>
+<section id="app" hidden><div class="top"><h1>⚙️ لوحة التحكم</h1><button class="b d" id="out">خروج</button></div><div class="tabs" id="tabs"></div><div id="pane"></div></section>
+</main><div id="msg" hidden></div>
+<script type="module">
+const $=s=>document.querySelector(s),C=window.SS_FIREBASE_CONFIG;
+const say=m=>{const e=$('#msg');e.textContent=m;e.hidden=false;clearTimeout(say.t);say.t=setTimeout(()=>e.hidden=true,4000)};
+const WKD=['السبت','الأحد','الاثنين','الثلاثاء','الأربعاء','الخميس','الجمعة'];
+const ERR={'auth/invalid-credential':'الإيميل أو كلمة السر غلط','auth/invalid-email':'الإيميل غير صحيح','auth/too-many-requests':'محاولات كتير، جرّب بعد شوية','auth/network-request-failed':'مفيش اتصال بالإنترنت'};
+/* كل تبويب = collection في Firebase، وتطبيق المستخدمين بيسمعها لحظيًا */
+const T={
+ notifs:{l:'🔔 إشعارات',f:[['title','عنوان الإشعار'],['text','نص الإشعار','t']],ord:()=>-Date.now(),btn:'إرسال لكل المستخدمين'},
+ gallery:{l:'🏆 صور الإنجازات',f:[['title','العنوان بالعربي'],['titleEn','English title'],['imageUrl','رابط الصورة أو ارفع صورة','img']],ord:()=>-Date.now()},
+ chal:{l:'🔥 التحديات',f:[['title','اسم التحدي'],['target','الهدف (رقم)','n'],['unit','الوحدة (ضغطة / كم / يوم)'],['step','الزيادة في كل ضغطة','n'],['pts','نقاط الإكمال','n']],ord:()=>Date.now()},
+ games:{l:'⚽ الألعاب',f:[['n','اسم اللعبة'],['e','إيموجي (⚽ 🏀 🏊)'],['min','المدة بالدقائق','n'],['kcal','السعرات الإجمالية','n']],ord:()=>Date.now()},
+ wk:{l:'📅 جدول الفعاليات',wk:1},
+ cfg:{l:'⚙️ الإعدادات',one:1,f:[['name','اسم التطبيق'],['wa','رقم واتساب التسجيل (201000000000)'],['sched','ملاحظات تحت الجدول (بتظهر لكل الزوار)','t']]}};
+let db,F,AU,auth,tab,un,built=0;
+async function boot(){
+ if(!(C&&C.apiKey&&C.projectId)){$('#err').textContent='ملف firebase-config.js مش موجود جنب الملف ده أو ناقص.';$('#go').disabled=true;return}
+ try{const b='https://www.gstatic.com/firebasejs/10.12.2/';
+  const [A,FS,AM]=await Promise.all([import(b+'firebase-app.js'),import(b+'firebase-firestore.js'),import(b+'firebase-auth.js')]);
+  F=FS;AU=AM;const app=A.initializeApp(C,'ss-admin');db=F.getFirestore(app);auth=AU.getAuth(app);
+  AU.onAuthStateChanged(auth,u=>u?enter():leave())}
+ catch(e){$('#err').textContent='افتح الصفحة من رابط https'}}
+$('#go').onclick=async()=>{if(!auth)return;$('#err').textContent='';
+ try{await AU.signInWithEmailAndPassword(auth,$('#em').value.trim(),$('#code').value)}
+ catch(e){$('#err').textContent=ERR[e.code]||('تعذر الدخول: '+(e.code||e.message))}};
+$('#code').onkeydown=e=>{if(e.key==='Enter')$('#go').click()};
+$('#out').onclick=()=>AU.signOut(auth);
+function enter(){$('#lock').hidden=true;$('#app').hidden=false;
+ if(!built){built=1;const tb=$('#tabs');Object.keys(T).forEach(k=>{const x=document.createElement('button');x.textContent=T[k].l;x.dataset.k=k;x.onclick=()=>show(k);tb.append(x)})}
+ show('notifs')}
+function leave(){un&&un();un=null;$('#app').hidden=true;$('#lock').hidden=false;$('#code').value=''}
+const shrink=f=>new Promise(r=>{const im=new Image();im.onload=()=>{const s=Math.min(1,900/Math.max(im.width,im.height)),c=document.createElement('canvas');c.width=im.width*s;c.height=im.height*s;c.getContext('2d').drawImage(im,0,0,c.width,c.height);r(c.toDataURL('image/jpeg',.72))};im.src=URL.createObjectURL(f)});
+function show(k){tab=k;un&&un();un=null;const t=T[k];document.querySelectorAll('#tabs button').forEach(x=>x.classList.toggle('on',x.dataset.k===k));
+ if(t.wk)return showWk();
+ const p=$('#pane');p.replaceChildren();const fm=document.createElement('form');fm.className='card';fm.innerHTML='<h2>'+t.l+'</h2>';
+ t.f.forEach(([n,l,ty])=>{const w=document.createElement('label');w.append(l);const i=document.createElement(ty==='t'?'textarea':'input');i.name=n;if(ty==='n'){i.type='number';i.inputMode='decimal'}w.append(i);
+  if(ty==='img'){const f=document.createElement('input');f.type='file';f.accept='image/*';f.onchange=async()=>{i.dataset.u=await shrink(f.files[0]);i.value='✔ تم تجهيز الصورة'};w.append(f)}fm.append(w)});
+ const sb=document.createElement('button');sb.className='b';sb.textContent=t.btn||(t.one?'حفظ':'إضافة');fm.append(sb);p.append(fm);
+ const ls=document.createElement('div');ls.className='card';p.append(ls);
+ fm.onsubmit=async e=>{e.preventDefault();const d={};let ok=0;t.f.forEach(([n,,ty])=>{const i=fm.elements[n];let v=i.dataset.u||i.value.trim();if(v!==''){ok++;d[n]=ty==='n'?+v:v}});
+  if(!ok){say('اكتب بيانات الأول');return}
+  try{if(t.one)await F.setDoc(F.doc(db,'cfg','main'),{...d,order:0},{merge:true});else await F.addDoc(F.collection(db,k),{...d,order:t.ord(),ts:Date.now()});
+   say(k==='notifs'?'اتبعت الإشعار ✔':'اتحفظ ✔');if(!t.one)fm.reset(),fm.querySelectorAll('[data-u]').forEach(i=>delete i.dataset.u)}
+  catch(er){say('فشل الحفظ: '+(er.code||er.message)+' (راجع Firestore rules)')}};
+ un=F.onSnapshot(F.query(F.collection(db,k),F.orderBy('order')),s=>{ls.replaceChildren();const h=document.createElement('h2');h.textContent='الحالي ('+s.size+')';ls.append(h);
+  s.docs.forEach(d=>{const r=d.data();if(t.one){t.f.forEach(([n])=>{const i=fm.elements[n];if(r[n]!=null&&document.activeElement!==i)i.value=r[n]});return}
+   const w=document.createElement('div');w.className='row';if(r.imageUrl){const im=new Image();im.src=r.imageUrl;w.append(im)}
+   const sp=document.createElement('span');sp.textContent=t.f.filter(x=>x[2]!=='img').map(x=>r[x[0]]).filter(x=>x!=null&&x!=='').join(' • ');w.append(sp);
+   const x=document.createElement('button');x.className='b d';x.textContent='حذف';x.onclick=()=>confirm('متأكد من الحذف؟')&&F.deleteDoc(F.doc(db,k,d.id)).catch(er=>say('فشل الحذف: '+er.code));w.append(x);ls.append(w)});
+  if(!t.one&&!s.size){const m=document.createElement('div');m.className='mut';m.textContent='لسه مفيش عناصر';ls.append(m)}},er=>say('خطأ: '+er.code))}
+/* جدول الأسبوع: 7 أيام، الفعالية + التاريخ + الوقت، بيتخزن في cfg/main.wk */
+function showWk(){const p=$('#pane');p.replaceChildren();const fm=document.createElement('form');fm.className='card';
+ fm.innerHTML='<h2>📅 جدول الفعاليات الأسبوعي</h2><div class="mut" style="margin-bottom:6px">سيب الخانات فاضية لو مفيش فعالية في اليوم ده</div>';
+ WKD.forEach((d,i)=>{const w=document.createElement('div');w.style.cssText='border-top:1px solid rgba(255,255,255,.1);padding:10px 0';const b=document.createElement('b');b.textContent=d;
+  const a=document.createElement('input');a.name='a'+i;a.placeholder='الفعالية';a.style.margin='6px 0';
+  const r=document.createElement('div');r.style.cssText='display:grid;grid-template-columns:1fr 1fr;gap:8px';
+  const g=document.createElement('input');g.type='date';g.name='g'+i;const tm=document.createElement('input');tm.type='time';tm.name='t'+i;r.append(g,tm);w.append(b,a,r);fm.append(w)});
+ const sb=document.createElement('button');sb.className='b';sb.textContent='حفظ الجدول';fm.append(sb);p.append(fm);
+ fm.onsubmit=async e=>{e.preventDefault();const wk=WKD.map((_,i)=>({a:fm.elements['a'+i].value.trim(),g:fm.elements['g'+i].value,t:fm.elements['t'+i].value}));
+  try{await F.setDoc(F.doc(db,'cfg','main'),{wk,order:0},{merge:true});say('اتحفظ الجدول ✔')}catch(er){say('فشل الحفظ: '+(er.code||er.message))}};
+ un=F.onSnapshot(F.doc(db,'cfg','main'),s=>{const r=s.data()||{};(r.wk||[]).forEach((x,i)=>['a','g','t'].forEach(k=>{const el=fm.elements[k+i];if(el&&x&&x[k]!=null&&document.activeElement!==el)el.value=x[k]}))},er=>say('خطأ: '+er.code))}
+boot();
+</script></body></html>
